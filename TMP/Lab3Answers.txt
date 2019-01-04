@@ -1,0 +1,154 @@
+Q1.The priority inversion problem could cause that a higher-priority process needs to wait for the completion of a lower-priority process.
+	1.1 Priority inheritance is one approach to address this issue. Please give another approach and briefly describe its idea.
+		Another approach to address priority inversion would be using priority ceiling. Whenever a process holds a lock(x) for some
+	resource its priority(L) would be increased to highest priority process's priority(pmax) + 1. Now whenever there is a process waiting on 
+	this lock with priority H and another process now exists with priority M and which has no relation with the resource(i.e it is not
+	competing for the lock), even though priority of this process (M) is higher than priority of running process L(holding the lock when
+	H is waiting and cannot run), M will not be able to preempt L because L has now temp increased prio pmax+1 (L<M<H<pmax+1). Now when
+	L releases the lock its priority will be decreased to its original priority L and now when the schedular is called H will be scheduled and
+	not M as H>M.
+	
+	So the running order will be L->H->M and not L->M->H (which would have been in case of priority inversion).
+		
+--------------------------------------------------------------------------------------------------------------------------------------------
+   1.2 Design a test case to show that your approach can address the priority inversion problem. You should compare the results that derived
+   from the original XINU implementation (use semaphore) and that derived from your implementation (use readers/writer locks). Put your
+   results in Lab3Answers.txt and your test case program (name it task1.c) in both ./sys and ./TMP
+	
+	Test cases are implemented in ./sys/task1.c and ./TMP/task1.c
+
+	Output for testcase described in question using semaphores:
+	
+	//output starts
+		Test 4: test the priority inversion problem using XINU semaphores
+	-start lowest prio process(prio = 10), then sleep 1s
+	  lowests: to acquire sem
+	  lowests: acquired sem, perform computation
+	lowests working
+	-start highest prio process(prio = 18), then sleep 1s
+	lowest process has prio = 10
+	-start medium prio process(prio = 15), then sleep 1s
+	  highests: to acquire sem
+	  mediums RUNNING (should run last, but here as we are using XINUsemaphores it runs before highests hence indicating priority inversion)
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	lowests working
+	  lowests: to release sem
+	  highests: acquired sem
+	  highests: to release sem
+	Test 4 OK
+	
+	//output for test case using semaphores ends
+	
+	
+	Explanation:
+
+	Test case 4: using XINU semaphores
+	
+	In this test case, 3 processes are created, lowests, mediums and highests having priorities 10, 15 and 18 respectively.
+	The resuming order is lowests, highests and mediums to ensure that highests is already waiting on sem acquired.
+	
+	Events ordering:
+	
+	1. lowests runs first acquires sem and remains busy doing computation.
+	2. highests is now created and resumed.
+	3. mediums is now created and resumed it is now in ready queue with lowests and higehsts and hence highests is resumed.
+	4. highests now tries to acquire sem but dosen't get and hence waits on the sem.
+	5. Now mediums gets scheduled (triggered!!! there is priority inversion as it should run last)
+	6. lowests runs completes computation releases sem now highests runs and complets.
+	
+	Here the execution sequence is lowests->mediums->highests which indicated priority inversion.
+	
+	
+--------------------------------------------------------------------------------------------------------------------------------------------
+	
+	Output for testcase described in question using read/write locks:
+	
+	Test 5: test the priority inversion problem using read/write locks
+	-start lowest prio process(prio = 10), then sleep 1s
+	  lowest: to acquire lock
+	  lowest: acquired lock, perform computation
+	lowest working
+	-start highest prio process(prio = 18), then sleep 1s
+	lowest process has prio = 10
+	-start medium prio process(prio = 15), then sleep 1s
+	  highest: to acquire lock
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	lowest working
+	  lowest: to release lock
+	  highest: acquired lock
+	  highest: to release lock
+	  medium RUNNING (should run last, as we have overcome priority inversion using priority inheritance mechanism medium runs last as it should because there was highest priority process waiting
+	Test 5 OK	
+	   
+   //output for test case using read/write ends
+
+   Explanation:
+
+	Test case 5: using read/write locks
+	
+	In this test case, 3 processes are created, lowest, medium and highest having priorities 10, 15 and 18 respectively.
+	The resuming order is lowest, highest and medium to ensure that highest is already waiting on sem acquired.
+	
+	Events ordering:
+	
+	1. lowest runs first acquires lock and remains busy doing computation.
+	2. highest is now created and resumed.
+	3. medium is now created and resumed it is now in ready queue with lowest and higehst and hence highest is resumed.
+	4. highest now tries to acquire lock but dosen't get and hence waits on the lock.
+	5. Now as we have used priority inhereitance mechanism lowest now has priority of highest as highest
+		is waiting on the lock.
+	6. Now lowest gets scheduled(even though we have medium in queue having prio higher than original prio of lowest) 
+		and completes the computation and releases lock.
+	7. Now highest gets scheduled acquires lock does work and releases it.
+	8. Lastly medium is scheduled.
+	
+	
+	Here the execution sequence is lowests->highests->mediums and hence no priority inversion.
+
+   
+-------------------------------------------------------------------------------------------------------------------------------------------   
+   
+   
+    3. Synchronization is a quite complex issue in operating systems. To show your understanding about process synchronization, you are asked to point out a reader/writer synchronization issue in this pesudo-code: task2_sync_issue.c. Multiple reader threads can execute this code concurrently by calling do_update. All the variables starting with global_ are global variables. You are asked to describe the potential issue caused by the incorrect synchronization and point out at least one possible thread interleaving that would trigger the problem. Put your answer in Lab3Answers.txt mentioned above.
+    
+    In this code we are allowing multiple reader threads to acquire the lock but the reader threads are actually updating the global 
+    buffer contains. As there can be multiple reader threads holding the lock and simultaneously in thread_update() and can also call
+    buffer_add() simultaneously.
+    
+    Consider the following interleaving when we have 2 reader threads.
+    
+    1. Reader thread 1 acquired reader's lock and enters thread_update() where it calls buffer_add() where it does
+    	 memcpy but yet has to update the buf->len field.
+    2. Now we have a context switch where reader 2 acquires lock, enters thread_update() and calls buffer_add() and
+    	 now has to do memcpy. 
+    3. Here reader 2 dosen't know that reader 1 has updated the buffer as there was context switch before reader 1
+    	 could update the buf->len field.
+    4. As a result reader 1 updates the global buffer overwriting the contents of reader 1 and also updates buf->len field
+    	 and completes.
+    5. reader 2 now updates buf->len making it not consistent. Here reader2 has it's data in the buffer but len is of reader1's 
+    	 data.
+    
+    Here we have 2 problems:
+    1. reader1's data is lost
+    2. reader2's data is also not guaranteed as buf->len which reader 2 had updated it was updated by reader1 leading to 
+       reader2's data in buffer with reader1's buf data length.
+
+	In short we have race condition between reader1 and reader2 to update the contents of buffer as both of them are allowed in
+	critical section (here buffer_add()) simultaneously which lead to inconsistent state of buf1.
+	
+	This situation can be prevented by allowing only one reader at a time to the buff_add() by initializing global_semaphore to 1.
+
